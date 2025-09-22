@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useEffect} from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Image,
   View,
@@ -10,15 +10,15 @@ import {
   Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {StackNavigationProp} from '@react-navigation/stack';
-import {RootStackParamList} from './navigationTypes';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from './navigationTypes';
 import Header from './header';
 import DownNavbar from './downNavbar';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
-import {logout} from './services/cartHelpers';
+import { deleteUseraccount } from './services/cartHelpers';
 
 // Constants
 const COLORS = {
@@ -53,7 +53,7 @@ interface UserProfile {
   name?: string;
 }
 
-const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
+const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -63,12 +63,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
     const loadUserProfile = async () => {
       try {
         const phoneNumber = await AsyncStorage.getItem('phoneNumber');
-        const userName = await AsyncStorage.getItem('userName'); // If you store user name
+        const userName = await AsyncStorage.getItem('userName');
 
         if (phoneNumber) {
           setUserProfile({
             phoneNumber,
-            name: userName || 'User', // Default name if not available
+            name: userName || 'User',
           });
         } else {
           setIsLoggedIn(false);
@@ -85,7 +85,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
   }, []);
 
   const formatPhoneNumber = (phone: string) => {
-    // Format phone number for better display (e.g., +91 98765 43210)
     if (phone.length === 10) {
       return `+91 ${phone.slice(0, 5)} ${phone.slice(5)}`;
     }
@@ -130,10 +129,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
   const handleLogout = useCallback(async () => {
     try {
       setLoading(true);
-
-      // const resp = await logout();
-      // console.log("logout resp", resp);
-
       await Promise.all([
         AsyncStorage.removeItem('authorization'),
         AsyncStorage.removeItem('phoneNumber'),
@@ -146,7 +141,23 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
       setIsLoggedIn(false);
       navigation.replace('SelectCanteen');
     } catch (e) {
-        await Promise.all([
+      console.error('Logout error:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [navigation]);
+
+  const handleDeleteAccount = useCallback(async () => {
+    try {
+      setLoading(true);
+      //here make api call for delete
+      const response = await deleteUseraccount();
+     console.log("delete account response",response);
+      if(response){
+        Alert.alert('Account Deleted', 'Your account has been deleted successfully.');
+        }
+        
+      await Promise.all([
         AsyncStorage.removeItem('authorization'),
         AsyncStorage.removeItem('phoneNumber'),
         AsyncStorage.removeItem('userName'),
@@ -154,10 +165,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
         AsyncStorage.removeItem('selectedDate'),
         AsyncStorage.removeItem('cartId'),
         AsyncStorage.removeItem('itemId'),
+        AsyncStorage.removeItem('guestCart'),
+        AsyncStorage.removeItem('addedTime'),
       ]);
       setIsLoggedIn(false);
       navigation.replace('SelectCanteen');
-      console.error('Logout error:', e);
+    } catch (e) {
+      console.error('Delete account error:', e);
     } finally {
       setLoading(false);
     }
@@ -178,9 +192,28 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
           onPress: handleLogout,
         },
       ],
-      {cancelable: true},
+      { cancelable: true },
     );
   }, [handleLogout]);
+
+  const confirmDeleteAccount = useCallback(() => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to permanently delete your account? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: handleDeleteAccount,
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [handleDeleteAccount]);
 
   if (loading) {
     return (
@@ -266,11 +299,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
               <View
                 style={[
                   styles.iconContainer,
-                  {backgroundColor: item.color + '20'},
+                  { backgroundColor: item.color + '20' },
                 ]}>
                 <Image
-                  style={[styles.menuIcon, {tintColor: item.color}]}
-                  source={{uri: item.icon}}
+                  style={[styles.menuIcon, { tintColor: item.color }]}
+                  source={{ uri: item.icon }}
                 />
               </View>
               <View style={styles.menuTextContainer}>
@@ -293,6 +326,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
 
       {/* Bottom Container */}
       <View style={styles.bottomContainer}>
+        <TouchableOpacity onPress={confirmDeleteAccount} style={styles.logoutButton}>
+          <Image
+            source={{
+              uri: 'https://cdn-icons-png.freepik.com/256/484/484614.png',
+            }}
+            style={styles.logoutIcon}
+          />
+          <Text style={styles.logoutText}>Delete Account</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={confirmLogout} style={styles.logoutButton}>
           <Image
             source={{
@@ -302,7 +344,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
           />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
-
         <View style={styles.footer}>
           <Text style={styles.footerText}>Powered By </Text>
           <Text style={styles.footerLogo}>WorldTek.in</Text>
@@ -491,43 +532,8 @@ const styles = StyleSheet.create({
     height: wp('4%'),
     tintColor: COLORS.TEXT_LIGHT,
   },
-  appInfoCard: {
-    backgroundColor: COLORS.CARD_BG,
-    borderRadius: wp('3%'),
-    padding: wp('4%'),
-    marginBottom: hp('2%'),
-    shadowColor: COLORS.SHADOW,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  appInfoTitle: {
-    fontSize: wp('4%'),
-    fontWeight: '600',
-    color: COLORS.TEXT_DARK,
-    marginBottom: hp('1.5%'),
-  },
-  appInfoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: hp('0.5%'),
-  },
-  appInfoLabel: {
-    fontSize: wp('3.5%'),
-    color: COLORS.TEXT_SECONDARY,
-  },
-  appInfoValue: {
-    fontSize: wp('3.5%'),
-    color: COLORS.TEXT_DARK,
-    fontWeight: '500',
-  },
   bottomPadding: {
-    height: hp('15%'),
+    height: hp('20%'),
   },
   bottomContainer: {
     position: 'absolute',

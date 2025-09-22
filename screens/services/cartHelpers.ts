@@ -102,6 +102,23 @@ export const addItemToCart = async (
   }
 };
 
+export const deleteUseraccount = async () => {
+  try {
+    const token = await getAuthToken();
+    const response = await axios.delete(`${API_BASE_URL}/deleteAccount`, {
+      headers: {
+        'Content-Type': 'application/json',
+        authorization: token,
+      },
+    });
+    // console.log('Response from clearCart:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error delete user account:', error);
+    throw error;
+  }
+};
+
 //addToCartItems for IOS multiple items
 export const addToCartItemsForIOS = async (guestCart: any) => {
   try {
