@@ -44,16 +44,8 @@ const SelectCanteenScreen = () => {
     console.log('Fetching canteens...1');
     try {
       setLoading(true);
-      const token = await AsyncStorage.getItem('authorization');
-      console.log('Fetching canteens...1', token);
 
-      if (!token) return;
-      const state = await NetInfo.fetch();
-      console.log('Fetching canteens...2');
-
-      const response = await axios.get(AllCanteens(), {
-        headers: {Authorization: token},
-      });
+      const response = await axios.get(AllCanteens());
 
       console.log('Fetching canteens...', response.data);
 
@@ -104,11 +96,13 @@ const SelectCanteenScreen = () => {
     }, []),
   );
 
-  const handleConfirm = () => {
+  const handleConfirm = async() => {
     if (selectedCanteen) {
       const selectedCanteenId = canteens.find(
         canteen => canteen.canteenName === selectedCanteen,
       )?.id;
+      //set canteenID in async storage
+      await AsyncStorage.setItem('canteenId', selectedCanteenId || '');
       if (selectedCanteenId) {
         navigation.navigate('Dashboard', {canteenId: selectedCanteenId});
       }

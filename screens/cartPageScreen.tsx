@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useCallback, memo} from 'react';
+import React, { useEffect, useState, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -9,35 +9,29 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import {useNavigation, useFocusEffect} from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import Header from './header';
 import DownNavbar from './downNavbar';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
-import {CartData, CartItem} from './types/cartTypes';
-import {
-  fetchCartData,
-  updateCartItemQuantity,
-  removeCartItem,
-  clearCart as clearCartHelper,
-} from './services/cartHelpers';
-import {useDispatch} from 'react-redux';
+import { CartData, CartItem, MenuData, MenuItem } from './types/cartTypes';
+import { useDispatch } from 'react-redux';
+import { addToCartItemsForIOS } from './services/cartHelpers';
 
 // Constants
 const COLORS = {
-  PRIMARY: '#0014A8', // Vibrant blue
-  ERROR: '#ff4d4d', // Red for errors
-  TEXT_SECONDARY: '#666', // Gray for secondary text
-  TEXT_DARK: '#222', // Dark gray for primary text
-  TEXT_LIGHT: '#888', // Light gray for subtle text
-  BACKGROUND: '#F4F6FB', // Light blue background
-  CARD: '#fff', // White for cards
-  CLEAR_BUTTON: '#ffeded', // Light red for clear button
-  BORDER: '#e6eaf2', // Light border color
+  PRIMARY: '#0014A8',
+  ERROR: '#ff4d4d',
+  TEXT_SECONDARY: '#666',
+  TEXT_DARK: '#222',
+  TEXT_LIGHT: '#888',
+  BACKGROUND: '#F4F6FB',
+  CARD: '#fff',
+  CLEAR_BUTTON: '#ffeded',
+  BORDER: '#e6eaf2',
 };
 
 // Type Definitions
@@ -111,7 +105,7 @@ const CartItemComponent = memo(
               <TouchableOpacity
                 style={[
                   styles.qtyBtn,
-                  {opacity: item.quantity === 1 ? 0.5 : 1},
+                  { opacity: item.quantity === 1 ? 0.5 : 1 },
                 ]}
                 onPress={() =>
                   item.quantity > 1 && onUpdateQuantity(item.quantity - 1)
@@ -167,10 +161,10 @@ const BillSummary = memo(
 
 // Empty Cart Component
 const EmptyCart = memo(
-  ({onContinueShopping}: {onContinueShopping: () => void}) => (
+  ({ onContinueShopping }: { onContinueShopping: () => void }) => (
     <View style={styles.emptyCartContainer}>
       <Image
-        source={{uri: 'https://img.icons8.com/ios/100/000000/empty-cart.png'}}
+        source={{ uri: 'https://img.icons8.com/ios/100/000000/empty-cart.png' }}
         style={styles.emptyCartIcon}
       />
       <Text style={styles.emptyCartText}>Your cart is empty</Text>
@@ -190,83 +184,163 @@ const CartPage: React.FC = () => {
   const [error, setError] = useState('');
   const [updatingItems, setUpdatingItems] = useState<number[]>([]);
   const dispatch = useDispatch();
-  
-  const loadCartData = async () => {
+
+  // Build CartData from guestCart and menus in AsyncStorage
+  const buildCartDataFromGuestCart = useCallback(async (): Promise<CartData | null> => {
     try {
-      console.log('first step 3');
+      const guestCartStr = await AsyncStorage.getItem('guestCart');
+      const guestCart = guestCartStr ? JSON.parse(guestCartStr) : { items: [] };
+      if (!guestCart?.items?.length) {
+        return null;
+      }
+
+      const storedMenus = await AsyncStorage.getItem('menus');
+      const menus: MenuData[] = storedMenus ? JSON.parse(storedMenus) : [];
+
+      const mappedItems: CartItem[] = guestCart.items.map((gItem: any, idx: number) => {
+        // Find the item details in stored menus
+        let itemDetails: MenuItem['item'] | undefined;
+        for (const menu of menus) {
+          const foundItem = menu.menuItems?.find(
+            (menuItem: MenuItem) => menuItem.item.id === gItem.itemId,
+          );
+          if (foundItem) {
+            itemDetails = foundItem.item;
+            break;
+          }
+        }
+
+        const price = itemDetails?.pricing?.price || 0;
+        const quantity = gItem.quantity || 1;
+        return {
+          id: idx, // Local temporary ID
+          cartId: 0,
+          itemId: gItem.itemId,
+          quantity,
+          price,
+          total: price * quantity,
+          item: {
+            id: gItem.itemId,
+            name: itemDetails?.name || 'Unknown Item',
+            description: itemDetails?.description || '',
+            type: itemDetails?.type || '',
+            image: itemDetails?.image || '',
+            quantity: 0,
+            quantityUnit: '',
+          },
+        };
+      });
+
+      return {
+        id: 0,
+        cartItems: mappedItems,
+        totalAmount: mappedItems.reduce((sum, it) => sum + it.total, 0),
+        menuConfiguration: { name: '' },
+      };
+    } catch (err) {
+      console.error('Error building cart data:', err);
+      return null;
+    }
+  }, []);
+
+  const loadCartData = useCallback(async () => {
+    try {
       setLoading(true);
-      const data = await fetchCartData();
-      console.log('Loading========loadCartData============', data);
-      setCartData(data);
-      setError("")
+      const guestData = await buildCartDataFromGuestCart();
+      setCartData(guestData);
+      setError('');
     } catch (err) {
       setCartData(null);
       console.error('Error fetching cart data:', err);
+      setError('Failed to load cart data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [buildCartDataFromGuestCart]);
 
   useEffect(() => {
     loadCartData();
-  }, []);
+  }, [loadCartData]);
 
   const updateItemQuantity = useCallback(
     async (cartItem: CartItem, newQuantity: number) => {
-      console.log(
-        'updateItemQuantity====================',
-        cartItem,
-        newQuantity,
-      );
       try {
         setUpdatingItems(prev => [...prev, cartItem.id]);
-        await updateCartItemQuantity(
-          cartData?.id || 0,
-          cartItem.itemId,
-          newQuantity,
+        const guestCartStr = await AsyncStorage.getItem('guestCart');
+        const guestCart = guestCartStr ? JSON.parse(guestCartStr) : { items: [] };
+        const idx = guestCart.items.findIndex(
+          (it: any) => String(it.itemId) === String(cartItem.itemId),
         );
-        await loadCartData();
+        if (idx > -1) {
+          // Find maxQuantity from stored menu data
+          const storedMenus = await AsyncStorage.getItem('menus');
+          const menus: MenuData[] = storedMenus ? JSON.parse(storedMenus) : [];
+          let maxQuantity = 10; // Default max
+          for (const menu of menus) {
+            const foundItem = menu.menuItems?.find(
+              (menuItem: MenuItem) => menuItem.item.id === cartItem.itemId,
+            );
+            if (foundItem) {
+              maxQuantity = Number(foundItem.maxQuantity) || 10;
+              break;
+            }
+          }
+
+          if (newQuantity > maxQuantity) {
+            Alert.alert('Maximum quantity reached');
+            return;
+          }
+
+          guestCart.items[idx].quantity = newQuantity;
+          await AsyncStorage.setItem('guestCart', JSON.stringify(guestCart));
+          await loadCartData();
+        }
       } catch (err) {
-        console.log('Error updating cart item', err);
-        // setError('Failed to update cart item');
+        console.error('Error updating cart item:', err);
+        setError('Failed to update cart item');
       } finally {
         setUpdatingItems(prev => prev.filter(id => id !== cartItem.id));
       }
     },
-    [cartData?.id, loadCartData],
+    [loadCartData],
   );
 
   const handleRemoveItem = useCallback(
     async (item: CartItem) => {
       try {
-        if (!cartData) return;
         setUpdatingItems(prev => [...prev, item.id]);
-        console.log('first step 1');
-        await removeCartItem(Number(item.cartId), Number(item.itemId));
-        console.log('first step 2');
-
+        const guestCartStr = await AsyncStorage.getItem('guestCart');
+        const guestCart = guestCartStr ? JSON.parse(guestCartStr) : { items: [] };
+        guestCart.items = guestCart.items.filter(
+          (it: any) => String(it.itemId) !== String(item.itemId),
+        );
+        await AsyncStorage.setItem('guestCart', JSON.stringify(guestCart));
         await loadCartData();
+        //update cart items in redux store
+        dispatch({
+          type: 'myCartItems',
+          payload: guestCart.items.length,
+        });
       } catch (err) {
-        // setError('Failed to remove cart item');
         console.error('Error removing cart item:', err);
+        setError('Failed to remove cart item');
       } finally {
         setUpdatingItems(prev => prev.filter(id => id !== item.id));
       }
     },
-    [cartData, loadCartData],
+    [loadCartData],
   );
 
   const handleClearCart = useCallback(async () => {
     try {
       setLoading(true);
-      await clearCartHelper();
-
-      setCartData({
-        id: 0,
-        cartItems: [],
-        totalAmount: 0,
-        menuConfiguration: {name: ''},
+      await AsyncStorage.removeItem('guestCart');
+      //update cart items in redux store
+      dispatch({
+        type: 'myCartItems',
+        payload: 0,
       });
+      setCartData({ id: 0, cartItems: [], totalAmount: 0, menuConfiguration: { name: '' } });
     } catch (err) {
       setError('Failed to clear cart');
       console.error('Error clearing cart:', err);
@@ -280,15 +354,17 @@ const CartPage: React.FC = () => {
       'Clear Cart',
       'Are you sure you want to clear your cart?',
       [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Clear', onPress: handleClearCart, style: 'destructive'},
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear', onPress: handleClearCart, style: 'destructive' },
       ],
-      {cancelable: true},
+      { cancelable: true },
     );
   }, [handleClearCart]);
 
-    const calculateTotal = useCallback(() => {
-    if (!cartData?.cartItems?.length) return {subtotal: 0, totalAmount: 0};
+  const calculateTotal = useCallback(() => {
+    if (!cartData?.cartItems?.length) {
+      return { subtotal: 0, totalAmount: 0 };
+    }
     const subtotal = cartData.cartItems.reduce(
       (sum, item) => sum + item.total,
       0,
@@ -297,80 +373,108 @@ const CartPage: React.FC = () => {
     const platformFee = 0; // Fixed platform fee
     const totalAmount = subtotal + gstAndCharges + platformFee;
 
-    // Update the store with the total amount
     dispatch({
       type: 'checkoutTotalBalance',
       payload: totalAmount,
     });
-    
-    return {subtotal, totalAmount};
-  }, [cartData]);
 
-  const {subtotal, totalAmount} = calculateTotal();
+    return { subtotal, totalAmount };
+  }, [cartData, dispatch]);
 
+  const { subtotal, totalAmount } = calculateTotal();
 
-  const handlePayment = useCallback(() => {
-    //here we need to set total amount into store
+  const handlePayment = useCallback(
+    async () => {
+      const token = await AsyncStorage.getItem('authorization');
+      try{
 
-
-    navigation.navigate('PaymentMethod');
-  }, [navigation]);
-
-
-
-useFocusEffect(
-  React.useCallback(() => {
-    const checkCartTime = async () => {
-      try {
-        const addedTime = await AsyncStorage.getItem('addedTime');
-        if (addedTime) {
-          const addedDate = new Date(addedTime);
-          const now = new Date();
-          const diffMs = now.getTime() - addedDate.getTime();
-          const diffMins = diffMs / (1000 * 60);
-          if (diffMins >= 30) {
-            await AsyncStorage.removeItem('addedTime');
-            await clearCartHelper();
-          }
+      
+      if (!token) {
+        navigation.navigate('Login');
+      } else {
+        //here we meed to make api call for add cart items to backend
+        const guestCartStr = await AsyncStorage.getItem('guestCart');
+        const orderDate = await AsyncStorage.getItem('selectedDate');
+        const canteenId = await AsyncStorage.getItem('canteenId');
+        let guestCartObj = guestCartStr ? JSON.parse(guestCartStr) : null;
+        if (orderDate && guestCartObj && canteenId) {
+          guestCartObj.orderDate = orderDate;
+          guestCartObj.canteenId = canteenId;
         }
-      } catch (e) {
-        console.error('Error checking cart time:', e);
+        console.log('guestCartObj:', guestCartObj);
+        console.log("api call for add cart items");
+        const response = await addToCartItemsForIOS(guestCartObj);
+        console.log('Add to cart response:', response);
+
+        if (response?.data) {
+          navigation.navigate('PaymentMethod');
+          console.log('Cart items added successfully');
+        } else {
+          console.error('Failed to add cart items');
+        }
       }
-    };
-
-    checkCartTime();
-  }, [navigation]),
-);
-
-if (loading) {
-  return (
-    <View style={styles.container}>
-      <Header text="My Cart" />
-      <View style={styles.centeredContainer}>
-        <ActivityIndicator size="large" color={COLORS.PRIMARY} />
-      </View>
-      <DownNavbar />
-    </View>
+      }catch(error){
+        Alert.alert('Error', 'An error occurred while processing your request.');
+        console.error('Error adding cart items:', error);
+      }
+    },
+    [navigation as NavigationProp],
   );
-}
 
-if (error) {
-  return (
-    <View style={styles.container}>
-      <Header text="My Cart" />
-      <View style={styles.centeredContainer}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.refreshButton} onPress={loadCartData}>
-          <Text style={styles.refreshButtonText}>Try Again</Text>
-        </TouchableOpacity>
-      </View>
-      <DownNavbar />
-    </View>
+  useFocusEffect(
+    React.useCallback(() => {
+      const checkCartTime = async () => {
+        try {
+          const addedTime = await AsyncStorage.getItem('addedTime');
+          if (addedTime) {
+            const addedDate = new Date(addedTime);
+            const now = new Date();
+            const diffMs = now.getTime() - addedDate.getTime();
+            const diffMins = diffMs / (1000 * 60);
+            if (diffMins >= 30) {
+              await AsyncStorage.removeItem('addedTime');
+              await AsyncStorage.removeItem('guestCart');
+              setCartData({ id: 0, cartItems: [], totalAmount: 0, menuConfiguration: { name: '' } });
+            }
+          }
+        } catch (e) {
+          console.error('Error checking cart time:', e);
+        }
+      };
+
+      checkCartTime();
+
+    }, []),
   );
-}
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header text="My Cart" />
+        <View style={styles.centeredContainer}>
+          <ActivityIndicator size="large" color={COLORS.PRIMARY} />
+        </View>
+        <DownNavbar />
+      </View>
+    );
+  }
 
-return (
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header text="My Cart" />
+        <View style={styles.centeredContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.refreshButton} onPress={loadCartData}>
+            <Text style={styles.refreshButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+        <DownNavbar />
+      </View>
+    );
+  }
+
+  return (
     <View style={styles.container}>
       <Header text="My Cart" />
       {cartData?.cartItems?.length ? (
@@ -406,7 +510,7 @@ return (
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.BACKGROUND, // #F4F6FB
+    backgroundColor: COLORS.BACKGROUND,
   },
   centeredContainer: {
     flex: 1,
@@ -415,21 +519,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp('6%'),
   },
   errorText: {
-    color: COLORS.ERROR, // #ff4d4d
+    color: COLORS.ERROR,
     fontSize: wp('4.2%'),
     fontWeight: '600',
     marginBottom: hp('2%'),
     textAlign: 'center',
   },
   refreshButton: {
-    backgroundColor: COLORS.PRIMARY, // #0014A8
+    backgroundColor: COLORS.PRIMARY,
     borderRadius: wp('2%'),
     paddingVertical: hp('1.2%'),
     paddingHorizontal: wp('6%'),
     alignItems: 'center',
   },
   refreshButtonText: {
-    color: COLORS.CARD, // #fff
+    color: COLORS.CARD,
     fontSize: wp('3.8%'),
     fontWeight: '600',
   },
@@ -443,41 +547,41 @@ const styles = StyleSheet.create({
     width: wp('25%'),
     height: wp('25%'),
     marginBottom: hp('3%'),
-    tintColor: COLORS.TEXT_LIGHT, // #888
+    tintColor: COLORS.TEXT_LIGHT,
   },
   emptyCartText: {
     fontSize: wp('4.8%'),
-    color: COLORS.TEXT_DARK, // #222
+    color: COLORS.TEXT_DARK,
     fontWeight: '600',
     marginBottom: hp('3%'),
     textAlign: 'center',
   },
   continueShoppingButton: {
-    backgroundColor: COLORS.PRIMARY, // #0014A8
+    backgroundColor: COLORS.PRIMARY,
     borderRadius: wp('2%'),
     paddingVertical: hp('1.5%'),
     paddingHorizontal: wp('8%'),
     alignItems: 'center',
   },
   continueShoppingText: {
-    color: COLORS.CARD, // #fff
+    color: COLORS.CARD,
     fontSize: wp('4%'),
     fontWeight: '600',
   },
   cartItems: {
     paddingHorizontal: wp('4%'),
     paddingVertical: hp('2%'),
-    paddingBottom: hp('20%'), // Extra padding to avoid overlap with BillSummary
+    paddingBottom: hp('20%'),
   },
   cartItemCard: {
     flexDirection: 'row',
-    backgroundColor: COLORS.CARD, // #fff
+    backgroundColor: COLORS.CARD,
     borderRadius: wp('3%'),
     marginBottom: hp('2%'),
     padding: wp('3.5%'),
     elevation: 2,
-    shadowColor: COLORS.PRIMARY, // #0014A8
-    shadowOffset: {width: 0, height: hp('0.2%')},
+    shadowColor: COLORS.PRIMARY,
+    shadowOffset: { width: 0, height: hp('0.2%') },
     shadowOpacity: 0.08,
     shadowRadius: wp('1.5%'),
   },
@@ -485,7 +589,7 @@ const styles = StyleSheet.create({
     width: wp('20%'),
     height: wp('20%'),
     borderRadius: wp('2%'),
-    backgroundColor: COLORS.BORDER, // #e6eaf2
+    backgroundColor: COLORS.BORDER,
   },
   itemInfo: {
     flex: 1,
@@ -500,17 +604,17 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: wp('4.2%'),
     fontWeight: '600',
-    color: COLORS.TEXT_DARK, // #222
+    color: COLORS.TEXT_DARK,
     flex: 1,
     marginRight: wp('2%'),
   },
   removeIconButton: {
-    backgroundColor: COLORS.CLEAR_BUTTON, // #ffeded
+    backgroundColor: COLORS.CLEAR_BUTTON,
     borderRadius: wp('50%'),
     padding: wp('1.5%'),
   },
   removeIconText: {
-    color: COLORS.ERROR, // #ff4d4d
+    color: COLORS.ERROR,
     fontSize: wp('3.5%'),
     fontWeight: '600',
   },
@@ -526,7 +630,7 @@ const styles = StyleSheet.create({
   },
   typeText: {
     fontSize: wp('3.2%'),
-    color: COLORS.TEXT_SECONDARY, // #666
+    color: COLORS.TEXT_SECONDARY,
     fontWeight: '500',
   },
   priceRow: {
@@ -537,12 +641,12 @@ const styles = StyleSheet.create({
   },
   itemPrice: {
     fontSize: wp('3.8%'),
-    color: COLORS.PRIMARY, // #0014A8
+    color: COLORS.PRIMARY,
     fontWeight: '600',
   },
   itemTotal: {
     fontSize: wp('3.5%'),
-    color: COLORS.TEXT_SECONDARY, // #666
+    color: COLORS.TEXT_SECONDARY,
     fontWeight: '500',
   },
   quantityRow: {
@@ -551,7 +655,7 @@ const styles = StyleSheet.create({
     marginTop: hp('1%'),
   },
   qtyBtn: {
-    backgroundColor: COLORS.PRIMARY, // #0014A8
+    backgroundColor: COLORS.PRIMARY,
     width: wp('8%'),
     height: wp('8%'),
     borderRadius: wp('2%'),
@@ -559,7 +663,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   qtyBtnText: {
-    color: COLORS.CARD, // #fff
+    color: COLORS.CARD,
     fontSize: wp('4.5%'),
     fontWeight: '600',
   },
@@ -568,18 +672,18 @@ const styles = StyleSheet.create({
     fontSize: wp('4%'),
     minWidth: wp('6%'),
     textAlign: 'center',
-    color: COLORS.TEXT_DARK, // #222
+    color: COLORS.TEXT_DARK,
     fontWeight: '600',
   },
   billCard: {
-    backgroundColor: COLORS.CARD, // #fff
+    backgroundColor: COLORS.CARD,
     borderRadius: wp('3%'),
     marginHorizontal: wp('4%'),
-    marginBottom: hp('10%'), // Space for DownNavbar
+    marginBottom: hp('10%'),
     padding: wp('4%'),
     elevation: 3,
-    shadowColor: COLORS.PRIMARY, // #0014A8
-    shadowOffset: {width: 0, height: hp('0.3%')},
+    shadowColor: COLORS.PRIMARY,
+    shadowOffset: { width: 0, height: hp('0.3%') },
     shadowOpacity: 0.1,
     shadowRadius: wp('2%'),
   },
@@ -589,33 +693,33 @@ const styles = StyleSheet.create({
     marginBottom: hp('1%'),
   },
   billLabel: {
-    color: COLORS.TEXT_SECONDARY, // #666
+    color: COLORS.TEXT_SECONDARY,
     fontSize: wp('3.8%'),
     fontWeight: '500',
   },
   billValue: {
-    color: COLORS.TEXT_DARK, // #222
+    color: COLORS.TEXT_DARK,
     fontSize: wp('3.8%'),
     fontWeight: '500',
   },
   billTotalRow: {
     borderTopWidth: wp('0.2%'),
-    borderTopColor: COLORS.BORDER, // #e6eaf2
+    borderTopColor: COLORS.BORDER,
     marginTop: hp('1%'),
     paddingTop: hp('1%'),
   },
   billTotalLabel: {
     fontWeight: '600',
     fontSize: wp('4%'),
-    color: COLORS.PRIMARY, // #0014A8
+    color: COLORS.PRIMARY,
   },
   billTotalValue: {
     fontWeight: '600',
     fontSize: wp('4%'),
-    color: COLORS.PRIMARY, // #0014A8
+    color: COLORS.PRIMARY,
   },
   payBtn: {
-    backgroundColor: COLORS.PRIMARY, // #0014A8
+    backgroundColor: COLORS.PRIMARY,
     borderRadius: wp('2%'),
     marginTop: hp('2%'),
     paddingVertical: hp('1.5%'),
@@ -623,7 +727,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   payBtnText: {
-    color: COLORS.CARD, // #fff
+    color: COLORS.CARD,
     fontSize: wp('4%'),
     fontWeight: '600',
     letterSpacing: wp('0.1%'),
@@ -634,7 +738,7 @@ const styles = StyleSheet.create({
     paddingVertical: hp('1%'),
   },
   clearCartBtnText: {
-    color: COLORS.ERROR, // #ff4d4d
+    color: COLORS.ERROR,
     fontSize: wp('3.8%'),
     fontWeight: '500',
   },

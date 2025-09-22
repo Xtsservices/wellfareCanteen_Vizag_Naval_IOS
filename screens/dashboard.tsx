@@ -41,8 +41,6 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation, route }) => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const { canteenId } = route.params;
   const [loading, setLoading] = useState(true);
-  
-
   useEffect(() => {
     const fetchMenuData = async () => {
       try {
@@ -53,16 +51,10 @@ const Dashboard: React.FC<DashboardProps> = ({ navigation, route }) => {
         }
         await AsyncStorage.setItem('canteenId', validCanteenId);
 
-        const token = await AsyncStorage.getItem('authorization');
-        if (!token) {
-          console.error('No token found');
-          return;
-        }
 
         const response = await axios.get(GetMenuItemsbyCanteenId(validCanteenId), {
           headers: {
             'Content-Type': 'application/json',
-            authorization: token,
           },
         });
           console.log("response.data.data",response.data.data);

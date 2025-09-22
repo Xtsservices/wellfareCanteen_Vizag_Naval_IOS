@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSelector } from 'react-redux';
 import { AppState } from '../store/storeTypes';
 import { fetchCartData } from './services/cartHelpers';
+import { dispatch } from '../store/store';
 
 // Define your stack's routes
 type RootStackParamList = {
@@ -35,7 +36,7 @@ const DownNavbar: React.FC<{ style?: any }> = ({ style }) => {
   const myCartItems = useSelector((state: ExtendedAppState) => state.myCartItems);
 
   // Log myCartItems for debugging
-  console.log("myCartItems", myCartItems);
+  console.log("myCartItemsBoom", myCartItems);
 
   React.useEffect(() => {
     AsyncStorage.getItem('canteenId').then(setCanteenId);
@@ -46,6 +47,28 @@ const DownNavbar: React.FC<{ style?: any }> = ({ style }) => {
      await fetchCartData();
   };
 
+  const [token, setToken] = React.useState<string | null>(null);
+
+  const getToken = async () => {
+    const tokenValue = await AsyncStorage.getItem('authorization');
+    const getGuestUserCartItemsCount = await AsyncStorage.getItem('guestCart');
+
+    dispatch({
+      type: 'myCartItems',
+      payload: getGuestUserCartItemsCount
+        ? JSON.parse(getGuestUserCartItemsCount)?.items?.length
+        : 0,
+    });
+    setToken(tokenValue);
+    return tokenValue;
+  };
+
+  React.useEffect(() => {
+    getToken();
+  }, []);
+
+  // Function to handle navigation with token check
+
   return (
     <View style={[styles.container, style]}>
 
@@ -55,6 +78,8 @@ const DownNavbar: React.FC<{ style?: any }> = ({ style }) => {
           style={styles.icon}
         />
       </TouchableOpacity>
+{/* based on token available or not */}
+{token &&
 
       <TouchableOpacity onPress={() => navigation.navigate('ViewOrders')}>
         <Image
@@ -62,6 +87,10 @@ const DownNavbar: React.FC<{ style?: any }> = ({ style }) => {
           style={styles.icon}
         />
       </TouchableOpacity>
+
+}
+
+      
       <TouchableOpacity onPress={() => navigation.navigate('CartPage')}>
         <View style={styles.cartIconContainer}>
           <Image

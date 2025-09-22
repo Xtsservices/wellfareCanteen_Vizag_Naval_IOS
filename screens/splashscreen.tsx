@@ -6,7 +6,7 @@ import { RootStackParamList } from './navigationTypes'; // Adjust path as needed
 const SplashScreen = ({ navigation }: { navigation: NavigationProp<RootStackParamList> }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigation.replace('CheckUserLogin');
+      navigation.replace('SelectCanteen');
     }, 2000); // Navigate after 2 seconds
 
     return () => clearTimeout(timer);

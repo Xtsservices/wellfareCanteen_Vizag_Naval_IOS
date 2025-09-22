@@ -227,6 +227,8 @@ const PaymentMethod: React.FC = () => {
         if (response.ok && data.data) {
           setOrderResponse(data.data);
           setShowOrderDetails(true);
+          await AsyncStorage.removeItem('guestCart');
+          await AsyncStorage.removeItem('selectedDate');
           Alert.alert('Success', 'Order Placed Successfully');
           // Navigate to PaymentStatusScreen for cash payment
           navigation.replace('PaymentStatusScreen', {

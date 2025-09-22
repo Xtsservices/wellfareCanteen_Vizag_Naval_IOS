@@ -102,7 +102,7 @@ const LoginScreen = () => {
             const currentTime = Date.now() / 1000;
             if (decoded.exp && decoded.exp > currentTime) {
               setLoading(true);
-              navigation.navigate('SelectCanteen');
+              navigation.navigate('CartPage' as never);
             } else {
               navigation.navigate('Splash' as never);
             }
@@ -247,7 +247,7 @@ const LoginScreen = () => {
         await AsyncStorage.setItem('phoneNumber', phoneNumber);
         dispatch({type: 'currentUserData', payload: data.data});
 
-        navigation.navigate('SelectCanteen');
+        navigation.navigate('CartPage' as never);
       } else {
         showToast('error', `Invalid OTP: ${data.message || 'Try again.'}`);
       }

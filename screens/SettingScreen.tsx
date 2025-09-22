@@ -144,7 +144,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
         AsyncStorage.removeItem('itemId'),
       ]);
       setIsLoggedIn(false);
-      navigation.replace('Login');
+      navigation.replace('SelectCanteen');
     } catch (e) {
         await Promise.all([
         AsyncStorage.removeItem('authorization'),
@@ -156,7 +156,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({navigation}) => {
         AsyncStorage.removeItem('itemId'),
       ]);
       setIsLoggedIn(false);
-      navigation.replace('Login');
+      navigation.replace('SelectCanteen');
       console.error('Logout error:', e);
     } finally {
       setLoading(false);

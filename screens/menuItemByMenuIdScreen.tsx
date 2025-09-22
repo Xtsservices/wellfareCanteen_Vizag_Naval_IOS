@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,30 +9,19 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import {
-  useFocusEffect,
-  useNavigation,
-  useRoute,
-} from '@react-navigation/native';
-import {RouteProp} from '@react-navigation/native';
-import {StackNavigationProp} from '@react-navigation/stack';
-import {RootStackParamList} from './navigationTypes';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DownNavbar from './downNavbar';
 import Header from './header';
-import {MenuData, MenuItem, CartData, CartItemsState} from './types/cartTypes';
-import {
-  fetchCartData,
-  addItemToCart,
-  updateCartItemQuantity,
-  removeCartItem,
-  findCartItemByItemId,
-} from './services/cartHelpers';
+import { MenuData, MenuItem, CartItemsState } from './types/cartTypes';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
-import {API_BASE_URL} from './services/restApi';
+import { API_BASE_URL } from './services/restApi';
+import { useDispatch } from 'react-redux';
 
 // Constants
 const COLORS = {
@@ -64,28 +53,40 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
   const [menuData, setMenuData] = useState<MenuData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [cartData, setCartData] = useState<CartData | null>(null);
   const [cartItems, setCartItems] = useState<CartItemsState>({});
   const [updateLoading, setUpdateLoading] = useState<string | null>(null);
   const [cartUpdated, setCartUpdated] = useState(false);
-  const {menuId} = route.params;
-
-  // Fetch menu items
-  const fetchMenuItems = async () => {
+  const { menuId } = route.params;
+const dispatch = useDispatch()
+  // Fetch menu items from AsyncStorage or API
+  const fetchMenuItems = useCallback(async () => {
     try {
       setLoading(true);
-      const token = await AsyncStorage.getItem('authorization');
-      if (!token) {
-        setError('No authentication token found');
+      // Check AsyncStorage first
+      const storedMenus = await AsyncStorage.getItem('menus');
+      let menus: MenuData[] = storedMenus ? JSON.parse(storedMenus) : [];
+
+      // Check if menu exists in AsyncStorage
+      const selectedMenu = menus.find((menu: MenuData) => menu.id === menuId);
+      if (selectedMenu) {
+        setMenuData({
+          ...selectedMenu,
+          menuItems: selectedMenu.menuItems.map((item: MenuItem) => ({
+            ...item,
+            minQuantity: item.minQuantity,
+            maxQuantity: item.maxQuantity,
+          })),
+        });
+        setLoading(false);
         return;
       }
 
+      // If not in AsyncStorage, fetch from API
       const response = await fetch(
-        `${API_BASE_URL}/menu/getMenuById?id=${menuId}`,
+        `${API_BASE_URL}/menu/getMenuByIdForIOS?id=${menuId}`,
         {
           headers: {
             'Content-Type': 'application/json',
-            authorization: token,
           },
         },
       );
@@ -99,10 +100,16 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
               maxQuantity: item.maxQuantity,
             }))
           : [];
-        setMenuData({
+        const newMenuData = {
           ...data.data,
           menuItems: updatedMenuItems,
-        });
+        };
+        setMenuData(newMenuData);
+
+        // Remove any existing menu with the same ID to avoid duplicates
+        menus = menus.filter((menu: MenuData) => menu.id !== menuId);
+        menus = [...menus, newMenuData];
+        await AsyncStorage.setItem('menus', JSON.stringify(menus));
       } else {
         setError('No menu data found');
       }
@@ -112,28 +119,26 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [menuId]);
 
-  // Fetch cart data
+  // Load cart data from AsyncStorage
   const loadCartData = async () => {
     try {
       setLoading(true);
       setCartItems({});
-      const data = await fetchCartData();
-      console.log('Fetched cart data:', data);
-      setCartData(data);
+      const existingCart = await AsyncStorage.getItem('guestCart');
+      let cart = existingCart ? JSON.parse(existingCart) : { items: [] };
       const cartItemsMap: CartItemsState = {};
-      if (data?.cartItems && Array.isArray(data.cartItems)) {
-        data.cartItems.forEach((cartItem: any) => {
+      if (cart?.items && Array.isArray(cart.items)) {
+        cart.items.forEach((cartItem: any, index: number) => {
           const itemIdKey = String(cartItem.itemId);
           cartItemsMap[itemIdKey] = {
             quantity: cartItem.quantity,
-            cartItemId: cartItem.id,
+            cartItemId: index,
           };
         });
       }
       setCartItems(cartItemsMap);
-      setLoading(false);
     } catch (err) {
       console.error('Error fetching cart data:', err);
     } finally {
@@ -141,45 +146,52 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
     }
   };
 
-  useFocusEffect(
-    React.useCallback(() => {
-      loadCartData();
-    }, [cartUpdated, navigation]),
-  );
-
   useEffect(() => {
     fetchMenuItems();
-  }, [menuId]);
+  }, [fetchMenuItems]);
 
-  const addToCart = async (item: any, menudata: MenuData) => {
+  const addToCart = async (item: MenuItem, menudata: MenuData) => {
     try {
-      // =============storing added time into cart=========
+      setUpdateLoading(item.id);
       const currentTime = new Date().toISOString();
       await AsyncStorage.setItem('addedTime', currentTime);
 
-      setUpdateLoading(item.id);
-      const minQty = 1;
-      await addItemToCart(
-        item.item.id,
-        item?.menuId || '',
-        menudata?.menuConfiguration?.id || '',
-        minQty,
+      const existingCart = await AsyncStorage.getItem('guestCart');
+      let cart = existingCart ? JSON.parse(existingCart) : { items: [] };
+
+      const itemIndex = cart.items.findIndex(
+        (cartItem: any) => cartItem.itemId === item.item.id,
       );
 
-      const updatedCartData = await fetchCartData();
-      setCartData(updatedCartData);
-      setCartUpdated(true);
-
-      const cartItem = findCartItemByItemId(updatedCartData, item.item.id);
-      if (cartItem) {
-        setCartItems(prev => ({
-          ...prev,
-          [item.item.id]: {
-            quantity: cartItem.quantity,
-            cartItemId: cartItem.id,
-          },
-        }));
+      if (itemIndex > -1) {
+        // Item already in cart, update quantity
+        cart.items[itemIndex].quantity += 1;
+      } else {
+        // New item, add to cart
+        cart.items.push({
+          itemId: item.item.id,
+          menuId: item?.menuId || '',
+          menuConfigurationId: menudata?.menuConfiguration?.id || '',
+          quantity: 1,
+        });
       }
+
+      await AsyncStorage.setItem('guestCart', JSON.stringify(cart));
+      //here we need to update the cart items state to reflect the changes immediately
+      const totalItems = cart.items.reduce(
+        (sum: number, cartItem: any) => sum + cartItem.quantity,
+        0,
+      );   
+      console.log('totalItems', totalItems);
+      dispatch({
+        type: 'myCartItems',
+        payload: totalItems,
+      });
+
+      const itemIdKey = String(item.item.id);
+      console.log('Guest cart updated:', cart);
+      await loadCartData();
+      setCartUpdated(true);
     } catch (err) {
       setError('Failed to add item to cart');
       console.error('Error adding to cart:', err);
@@ -194,11 +206,7 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
       setCartUpdated(true);
       const itemId = item.item.id;
       const itemKey = String(itemId);
-      const cartItem = cartData?.cartItems.find(
-        cartItem => cartItem.itemId === itemId,
-      );
-
-      if (!cartItems[itemKey] || !cartItem) {
+      if (!cartItems[itemKey]) {
         await addToCart(item, menuData!);
         return;
       }
@@ -211,10 +219,30 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
       }
 
       const newQty = currentQty + 1;
-      const cartItemId = item.itemId;
-      console.log('cartItemId:=9==========', cartItemId);
-      console.log('cartItemId:=======0909==========', cartData);
-      await updateCartItemQuantity(cartData?.id || '', cartItemId, newQty);
+      const existingCart = await AsyncStorage.getItem('guestCart');
+      let cart = existingCart ? JSON.parse(existingCart) : { items: [] };
+
+      const itemIndex = cart.items.findIndex(
+        (cartItem: any) => cartItem.itemId === item.item.id,
+      );
+
+      if (itemIndex > -1) {
+        cart.items[itemIndex].quantity = newQty;
+        await AsyncStorage.setItem('guestCart', JSON.stringify(cart));
+        //here we need to update the cart items state to reflect the changes immediately
+        const totalItems = cart.items.reduce(
+          (sum: number, cartItem: any) => sum + cartItem.quantity,
+          0,
+        );
+        dispatch({
+          type: 'myCartItems',
+          payload: totalItems,
+        });
+        console.log('Guest cart updated:', cart);
+      } else {
+        Alert.alert('Item not found in cart');
+        return;
+      }
 
       await loadCartData();
       setCartItems(prev => ({
@@ -225,7 +253,6 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
         },
       }));
     } catch (err) {
-      // setError('Failed to update quantity');
       console.error('Error increasing quantity:', err);
     } finally {
       setUpdateLoading(null);
@@ -238,23 +265,46 @@ const MenuItemsByMenuIdScreenNew: React.FC = () => {
       setCartUpdated(true);
       const itemId = item.item.id;
       const itemKey = String(itemId);
-      if (!cartItems[itemKey]) return;
+      if (!cartItems[itemKey]) {
+        return;
+      }
 
       const currentQty = cartItems[itemKey].quantity;
       const minQty = Number(item.minQuantity) || 1;
-      const cartItemId = item.itemId;
+
+      const existingCart = await AsyncStorage.getItem('guestCart');
+      let cart = existingCart ? JSON.parse(existingCart) : { items: [] };
 
       if (currentQty <= minQty) {
-        await removeCartItem(cartData?.id || 0, cartItemId);
+        cart.items = cart.items.filter(
+          (cartItem: any) => cartItem.itemId !== item.item.id,
+        );
+        await AsyncStorage.setItem('guestCart', JSON.stringify(cart));
+        //here we need to update the cart items state to reflect the changes immediately
+          const totalItems = cart.items.reduce(
+            (sum: number, cartItem: any) => sum + cartItem.quantity,
+            0,
+          );
+          dispatch({
+            type: 'myCartItems',
+            payload: totalItems,
+          });
+
         await loadCartData();
         setCartItems(prev => {
-          const updated = {...prev};
+          const updated = { ...prev };
           delete updated[itemKey];
           return updated;
         });
       } else {
         const newQty = currentQty - 1;
-        await updateCartItemQuantity(cartData?.id || '', cartItemId, newQty);
+        const itemIndex = cart.items.findIndex(
+          (cartItem: any) => cartItem.itemId === item.item.id,
+        );
+        if (itemIndex > -1) {
+          cart.items[itemIndex].quantity = newQty;
+          await AsyncStorage.setItem('guestCart', JSON.stringify(cart));
+        }
         await loadCartData();
         setCartItems(prev => ({
           ...prev,
@@ -420,7 +470,7 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.PRIMARY,
     shadowOpacity: 0.08,
     shadowRadius: wp('2%'),
-    shadowOffset: {width: 0, height: hp('0.2%')},
+    shadowOffset: { width: 0, height: hp('0.2%') },
     padding: wp('3%'),
     alignItems: 'flex-start',
   },
@@ -538,7 +588,7 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.PRIMARY,
     shadowOpacity: 0.15,
     shadowRadius: wp('2%'),
-    shadowOffset: {width: 0, height: hp('0.2%')},
+    shadowOffset: { width: 0, height: hp('0.2%') },
     marginBottom: hp('1%'),
   },
   goToCartButtonText: {

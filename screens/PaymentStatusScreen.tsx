@@ -77,8 +77,10 @@ const PaymentStatusScreen: React.FC = () => {
             orderId,
           }),
         });
-
+        console.log("place order api response", response);
         if (response) {
+          await AsyncStorage.removeItem('guestCart');
+          await AsyncStorage.removeItem('selectedDate');
           navigation.replace('ViewOrders');
         }
 

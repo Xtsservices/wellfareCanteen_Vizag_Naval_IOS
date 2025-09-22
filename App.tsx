@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, Button, Linking, StyleSheet, TouchableOpacity,Platform } from "react-native";
+import { View, Text, Linking, StyleSheet, TouchableOpacity,Platform } from "react-native";
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Toast from 'react-native-toast-message';

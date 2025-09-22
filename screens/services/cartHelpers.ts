@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import {dispatch} from '../../store/store';
 import {API_BASE_URL} from './restApi';
 
 // Get authorization token
@@ -32,15 +31,6 @@ export const fetchCartData = async () => {
     console.log('fetchCartData==stand', response);
 
     if (response.data && response.data.data) {
-      if (response.data && response.data.data) {
-        const cartItemsCount = response?.data?.data?.cartItems
-          ? response.data.data.cartItems.length
-          : 0;
-        dispatch({
-          type: 'myCartItems',
-          payload: cartItemsCount,
-        });
-      }
       console.log(
         'fetchCartData==stand=====================',
         response.data.data,
@@ -56,10 +46,6 @@ export const fetchCartData = async () => {
 
       return orders;
     } else {
-      dispatch({
-        type: 'myCartItems',
-        payload: 0,
-      });
       throw new Error('No cart data found');
     }
   } catch (error) {
@@ -112,6 +98,27 @@ export const addItemToCart = async (
     return response.data;
   } catch (error) {
     console.error('Error adding item to cart:', error);
+    throw error;
+  }
+};
+
+//addToCartItems for IOS multiple items
+export const addToCartItemsForIOS = async (guestCart: any) => {
+  try {
+    const token = await getAuthToken();
+    console.log('Add to cart items payload:', guestCart);
+
+    const response = await axios.post(`${API_BASE_URL}/cart/addToCartForIOS`, guestCart, {
+      headers: {
+        'Content-Type': 'application/json',
+        authorization: token,
+      },
+    });
+    console.log('Response from addToCartItems:', response.data);
+    return response.data;
+  } catch (error) {
+    console.log(error,"error in addToCartItemsForIOS");
+    console.error('Error adding multiple items to cart:', error);
     throw error;
   }
 };
@@ -199,17 +206,11 @@ export const removeCartItem = async (
 export const clearCart = async () => {
   try {
     const token = await getAuthToken();
-
     const response = await axios.get(`${API_BASE_URL}/cart/clearCart`, {
       headers: {
         'Content-Type': 'application/json',
         authorization: token,
       },
-    });
-    // console.log('Response from clearCart:', response.data);
-    dispatch({
-      type: 'myCartItems',
-      payload: 0,
     });
     return response.data;
   } catch (error) {
