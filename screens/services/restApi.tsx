@@ -1,6 +1,6 @@
 
-const URL = 'http://172.16.4.39:3000/api';
-// const URL = 'https://server.welfarecanteen.in/api';
+// const URL = 'http://localhost:3000/api';
+const URL = 'https://server.welfarecanteen.in/api';
 
 export const API_BASE_URL = URL;
 export const Login = () => `${URL}/login`;
